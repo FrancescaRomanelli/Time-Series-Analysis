@@ -1,0 +1,397 @@
+---
+title: "CO2 on Mauna Loa (Hawai’i), since the late 1950s"
+author: "Francesca Romanelli, Serena Spaziani"
+date: "2024-02-14"
+output:
+   pdf_document:
+    toc: true
+    number_sections: yes
+sansfont: Calibri Light    
+linestretch: 1.5
+---
+ 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, include=FALSE}
+library("tseries")
+library("forecast")
+library("TSA")
+library("ggfortify")
+library("knitr")
+library("zoo")
+library("dplyr")
+```
+
+# Introduction
+
+Our report is based on the time series data concerning atmospheric CO\(_2\) concentrations. This dataset spans from 1959 to 1997 and consists of 468 observations recorded monthly. Notably, for the months of February, March, and April in 1964, missing values were estimated through linear interpolation between January and May of the same year. The data is reported in parts per million (ppm) and follows the preliminary 1997 SIO manometric mole fraction scale.
+
+Source:
+Keeling, C. D., & Whorf, T. P. (Scripps Institution of Oceanography, University of California, La Jolla, California, USA 92093-0220). https://scrippsco2.ucsd.edu/data/atmospheric_co2/.
+
+
+# Preliminary Analysis
+
+
+Our initial analysis will involve visualizing the dataset through plots to discern any discernible patterns, trends, or seasonality. Subsequently, we will employ statistical tests to assess the stationarity of the data. If the data is found to be non-stationary, we will perform operations aimed at achieving stationarity. This preliminary analysis will provide foundational insights into the nature of the CO\(_2\) concentration time series data and guide our subsequent modeling efforts.
+
+```{r, echo=FALSE}
+co2_data <- data.frame(Date = as.Date(time(co2)), CO2 = as.numeric(co2))
+co2_data$Date <- as.Date(co2_data$Date)
+co2_data <- co2_data %>% 
+  select(Date, CO2) %>% 
+  arrange(Date)
+```
+
+```{r}
+knitr::kable(head(co2_data))
+
+```
+
+
+By a statistical summary of the time series we can provide insights into central tendencies and dispersion.
+
+```{r}
+summary(co2)
+```
+
+```{r}
+sum(is.nan(co2)) 
+```
+
+After conducting a search for NaN values in the dataset, it was determined that no NaN values were found.
+
+## Growth line plot
+
+
+The following plot illustrates the atmospheric concentration of CO\(_2\) over time. The red line represents the linear trend fitted to the data, providing insight into the overall direction of CO\(_2\) levels. However, upon further analysis, it became evident that the growth of the time series is not linear, but rather follows a quadratic curve. 
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+require(graphics)
+par(mfrow = c(1,2))
+# Linear regression plot
+plot(co2, type = "l", ylab = expression("CO"[2]*" concentration (ppm)"),las = 1,
+     main = "", col="darkorchid4")
+abline(reg=lm(co2~ time(co2)),col="red",lwd = 2)
+axis(1, at = seq(1960, 2020, by = 5))
+legend("topleft", legend=c("CO2", "Linear regression"),
+       col = c("red", "darkorchid4"), lty = 1, lwd = 2)
+# Quadratic curve plot
+plot(co2,xlab = "Time", ylab = expression("CO"[2]*" concentration (ppm)"),las = 1,
+     main = "", col="darkorchid4")
+axis(1, at = seq(1960, 2020, by = 5))
+# Extract numeric values from time series
+time_numeric <- as.numeric(time(co2))
+# Quadratic curve computation
+fit <- lm(co2 ~ poly(time_numeric, 2))
+predicted_values <- predict(fit)
+
+par(new = TRUE)
+# Quadratic curve
+plot(predicted_values, type = "l", col = "red", axes = FALSE, xlab = "", 
+     ylab = "",lwd = 2 )
+legend("topleft", legend = c("CO2", "Quadratic curve"), 
+       col = c("red", "darkorchid4"), lty = 1, lwd = 2)
+mtext(expression("Atmospheric concentration of CO"[2]), side = 3, line = -2, 
+      outer = TRUE, cex = 1.5)
+
+```
+
+
+This step analysis aims to provide insights into the pattern and rate of change in atmospheric CO\(_2\) concentration. To do so, we compute the mean CO\(_2\) concentration per year and then plot this data along with a quadratic curve to visualize the trend in CO\(_2\) levels over time
+.
+```{r, fig.align='center', fig.width=10, fig.height=5.5 }
+co2_data <- co2_data %>%
+  mutate(Year = lubridate::year(Date))
+mean_co2_per_year <- co2_data %>%
+  group_by(Year) %>%
+  summarise(mean_CO2 = mean(CO2))
+
+
+plot(mean_co2_per_year, type="l", col="darkblue", lty = 3, lwd = 2,
+     xlab = "Year", ylab = "Mean CO2 concentration (ppm)",)
+par(new = TRUE)
+# Quadratic curve
+plot(predicted_values, type = "l", col = "red", axes = FALSE, xlab = "", 
+     ylab = "",lwd = 2 )
+mtext(expression("Mean CO"[2]*" per year"), side = 3, line = -2, 
+      outer = TRUE, cex = 1.0)
+legend("top", legend = c("mean CO2 concentration", "quadratic curve"), 
+       col = c("darkblue", "red"), lty = c(2, 1), horiz = TRUE, 
+       inset = c(2, -0.1), xpd = TRUE, bty = "n", cex = 0.8)
+
+```
+
+
+## Monthly variation boxplot
+
+In our analysis, we aimed to explore the monthly variation in CO\(_2\) levels from 1959 to 1997. To achieve this, we utilized a boxplot visualization technique. Each boxplot represents the distribution of CO\(_2\) concentrations for a specific month across the entire time period. Our objective was to gain insights into the seasonal patterns and trends present within the dataset by examining the variability in CO\(_2\) concentrations across different months.
+
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+par(mar = c(5, 5, 2, 2))
+boxplot(co2 ~ cycle(co2), xlab = "Month", ylab = expression("CO"[2]*" (ppm)"), 
+        main = expression("Monthly CO"[2]*" Boxplot"), 
+        col = c("cadetblue3", "chocolate", "gold"), border = "black",
+        boxwex = 0.5, whisklty = 1, whiskcol = "black", staplecol = "black",  
+        outpch = 19, outcol = "black", axes = TRUE, horizontal = FALSE)  
+```
+
+The boxplot reveals significant variability in CO\(_2\) concentrations across different months throughout the years 1959 to 1997. Notably, months 4 to 6 (April to June) exhibit higher CO\(_2\) levels compared to other months, as evidenced by taller boxes and wider interquartile ranges. This observation suggests the presence of seasonality, with peak CO\(_2\) concentrations occurring during these months. 
+
+Additionally, there do not appear to be any outliers, and there are no missing values (as affirmed before) in the dataset. Therefore, no data cleaning is required.
+
+## Time Series Decomposition
+
+Here, we employed a decomposition technique to disentangle the time series data into distinct components, namely trend, seasonal, and error.
+
+This decomposition follows an additive model, expressed as:
+$$Y(t) = T(t) + S(t) + e(t)$$
+where:
+\begin{itemize}
+    \item \( Y(t) \) denotes the concentration of CO\(_2\) at a given time \( t \)
+    \item \( T(t) \) represents the trend component, capturing the long-term systematic change or tendency observed over time
+    \item \( S(t) \) signifies the seasonal component, reflecting the periodic fluctuations or seasonality inherent in the data
+    \item \( e(t) \) represents the random error component, encompassing the unexplained or residual variability in the data at each time point
+\end{itemize}
+
+
+```{r, fig.align='center', fig.width=10, fig.height=6, warning=FALSE}
+dec <- decompose(co2,"additive")
+plot(dec, col = "darkslateblue")
+```
+
+We can once again affirm that, as observed from the plot, the time series showcases a steadily increasing trend. This trend signifies the overall direction or consistent movement of the data over time. Additionally, the presence of seasonality is evident, characterized by a specific pattern that repeats over a defined cycle of time. This recurring pattern suggests non-stationarity in mean but stationarity in variance. Consequently, we may hypothesize non-stationarity in the time series.
+
+## Test Stationarity
+
+
+We utilize the Augmented Dickey-Fuller (ADF) test to assess the stationarity of the time series. The null and alternative hypotheses for this test are as follows:
+
+$$\begin{cases}
+H_0 : \text{The time series has a unit root, indicating non-stationarity}\\
+H_1 : \text{The time series does not have a unit root, indicating stationarity} 
+\end{cases}$$
+
+```{r}
+adf.test(co2)
+```
+
+The test yielded a test statistic of -2.8299 with a lag order of 7, resulting in an associated p-value of 0.2269. With a significance level of 0.05, the p-value exceeds the threshold, leading to the failure to reject the null hypothesis. This outcome confirms the presence of a unit root in the time series, indicating non-stationarity.
+
+## Autocorrelation (ACF e PACF)
+
+In our analytical process, we move forward by examining the autocorrelation function (ACF) and partial autocorrelation function (PACF) plots of the CO\(_2\)  time series data. Autocorrelation measures the relationship between a variable's current value and its past values at different lags, while partial autocorrelation measures the unique correlation between a variable's current value and its past values at a specific lag, controlling for the influence of intermediate lags.
+
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+par(mfrow = c(1,2))
+acf(co2, lag.max = 30, main = expression("ACF of CO"[2]), col = "mediumpurple3")
+pacf(co2, lag.max = 80, main = expression("PACF of CO"[2]), col = "mediumvioletred")
+
+```
+
+The slow decay of the autocorrelation function suggests the data follow a long-memory process. The duration of shocks is relatively persistent and influence the data several observations ahead. 
+The persistence of the ACF mentioned before suggests that first differences may be needed to render the data stationary. 
+
+
+## Remove Trend and Seasonal effect
+
+We proceed with the aim of making the CO\(_2\)  time series data stationary by removing its trend and seasonal effects. To achieve this, we utilize the \texttt{diff()} function in R, which computes the difference between consecutive elements of the time series. This differencing operation effectively eliminates any linear trend present in the data by subtracting each observation from the observation immediately preceding it. By doing so, we stabilize the mean of the time series, a key characteristic of stationary data.
+
+```{r, warning=FALSE}
+adf.test(diff(co2))
+```
+
+We observe that the series exhibits sufficient stationarity, making it suitable for various time series modeling techniques.
+
+The subsequent step involves determining the appropriate parameters for the SARIMA model. We have already identified that the 'd' component is 1, indicating the need for one difference to achieve stationarity in the series. This determination is facilitated through correlation plots. Below there are the ACF and PACF plots corresponding to the differenced series.
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+par(mfrow = c(1,2))
+diff1 = diff(co2)
+acf(diff1, main = expression("ACF of 1-Differenced CO"[2]), col = "mediumpurple3")
+pacf(diff1, main = expression("PACF of 1-Differenced CO"[2]), col = "mediumvioletred")
+```
+
+At the core of this analysis lies the use of the expression \texttt{diff(diff1, lag = 12)}, which computes the second difference of the time series while incorporating a seasonal lag of 12 observations. This iterative process plays a crucial role in minimizing the impact of both trend and seasonal effects present in the original data.
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+diff2 = diff(diff1, lag = 12)
+plot(diff2, col ="springgreen4")
+abline(h = mean(diff2), col="red", lwd = 1.5)
+title(main="Seasonal 2-Differencing")
+```
+
+The plot indicates that we have addressed non-stationarity issues by stabilizing the mean and eliminating seasonality.
+
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+par(mfrow = c(1,2))
+acf(diff2, main = expression("ACF of 2-Differenced CO"[2]), col = "mediumpurple3")
+pacf(diff2, main = expression("PACF of 1-Differenced CO"[2]), col = "mediumvioletred")
+```
+
+
+# Model Specification
+
+## SARIMA Model
+
+In the process of model specification, we identify the most appropriate model among a set of candidate models. The goal is to choose a model that best describes the underlying data. 
+Due to the fact that our time series exhibits seasonality, we will use a model called SARIMA - Seasonal AutoRegressive Integrated Moving Average - that is designed to handle recurring patterns in time series data, particularly those associated with specific seasons.
+
+
+To express SARIMA, we employ ARIMA in the form: ARIMA(p,d,q)(P, D, Q)m.          
+(p, d, q) represent the non-seasonal parameters of ARIMA, where: $p$ denotes the order of the autoregressive process, $d$ are the degrees of differencing and $q$ specifies how many past error terms are included in the linear combination.
+(P, D, Q) are the seasonal parameters of ARIMA, which have the same interpretation as (p, d, q) but from a seasonal perspective.
+
+Additionally, $m$ refers to the number of periods in each season, determining the length of the seasonal cycle within the data.
+
+We suggest setting the seasonal period, denoted by $m$, to 12, aligning with the monthly nature of our data. 
+Additionally, we suggest lag differencing and seasonal lag differencing, represented by $(d,D)$, to be set to 1. The selection of the remaining parameter values is guided by an analysis of the autocorrelation function (ACF) and partial autocorrelation function (PACF), with specific attention to values of 1 and 2 for these parameters.
+
+
+```{r}
+sarima1 <- Arima(co2, order = c(1, 1, 1), 
+                 seasonal = list(order = c(1, 1, 1), period = 12), method = "ML")
+sarima2 <- Arima(co2, order = c(1, 1, 1), 
+                 seasonal = list(order = c(1, 1, 2), period = 12), method = "ML")
+sarima3 <- Arima(co2, order = c(2, 1, 1), 
+                 seasonal = list(order = c(2, 1, 1), period = 12), method = "ML")
+```
+
+
+# Model Comparison
+
+Model comparison is a critical step in time series analysis aimed at identifying the most suitable model among our candidates: SARIMA(1, 1, 1)(1, 1, 1)[12], SARIMA(1, 1, 1)(1, 1, 2)[12], and SARIMA(2, 1, 1)(2, 1, 1)[12]. We will compare these models using likelihood-based criteria such as the Akaike Information Criterion (AIC) and the Bayesian Information Criterion (BIC), which provide a measure of the goodness of fit of the model. Additionally, Root Mean Squared Error (RMSE) and Mean Absolute Error (MAE) are used to evaluate the accuracy of a model's predictions and provide a measure of the discrepancy between observed values and those predicted by the model. The chosen model will be the one with the lowest values of AIC, BIC, RMSE, and MAE.
+```{r}
+AIC1 <- AIC(sarima1)
+AIC2 <- AIC(sarima2)
+AIC3 <- AIC(sarima3)
+BIC1 <- BIC(sarima1)
+BIC2 <- BIC(sarima2)
+BIC3 <- BIC(sarima2)
+z.res1 <- sarima1$residuals
+z.res2 <- sarima2$residuals
+z.res3 <- sarima2$residuals
+RMSE1 <- sqrt(mean(z.res1^2))
+MAE1 <- mean(abs(z.res1))
+RMSE2 <- sqrt(mean(z.res2^2))
+MAE2 <- mean(abs(z.res2))
+RMSE3 <- sqrt(mean(z.res3^2))
+MAE3 <- mean(abs(z.res3))
+
+model_comp <- data.frame(
+  Model = c("SARIMA(1,1,1)(1,1,1)", 
+            "SARIMA(1,1,1)(1,1,2)", 
+            "SARIMA(2,1,1)(2,1,1)"),
+  AIC = c(AIC1, AIC2, AIC3),
+  BIC = c(BIC1, BIC2, BIC3),
+  MAE = c(MAE1, MAE2, MAE3),
+  RMSE = c(RMSE1, RMSE2, RMSE3)
+)
+
+knitr::kable(model_comp)
+```
+
+Based on the preceding table, we proceed with our analysis using the SARIMA(1,1,1)(1,1,1)[12] model because it exhibits the lowest BIC value. Although the values of the remaining metrics are not the lowest, the differences are minimal. Following the principle of parsimony, we opt for the model with the fewest parameters to estimate.
+
+
+# Model Diagnostics
+
+A crucial aspect is to perform diagnostic checks to ensure the validity of the model. Model diagnostics involves assessing the quality of the specified and estimated model. How well does the model fit the data? To achieve this, the study of residuals is highly important. If the model is correct and its parameters are close to the true values, then the residuals are independent, identically distributed, and follow a Normal distribution $\epsilon_t\sim N(0,\sigma^2)$.
+
+## Residual analysis
+
+### Plot of the Standardized Residuals over time
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+plot(rstandard(sarima1), type="l", col = "dodgerblue3", 
+     ylab= "Standardized residuals", xlab = "Year",
+     main = "Standardized Residuals SARIMA(1, 1, 1)(1, 1, 1)[12]")
+points(rstandard(sarima1), pch = 20, col = "dodgerblue4")
+abline(h = mean(rstandard(sarima1)), col = "firebrick", lwd = 1.5)
+```
+
+The mean of the residuals is constant over the time and close to zero.
+
+
+### Check the Residuals independence
+
+
+In the next plot, we analyze the ACF and the Ljung-Box statistic to validate the independence among the residuals. The hypothesis tests associated with the Ljung-Box statistic are:
+
+$$\begin{cases}
+H_0 : \text{There is no autocorrelation in the time series data}\\
+H_1 : \text{TThere is autocorrelation present in the time series data} 
+\end{cases}$$
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+autoplot(ggtsdiag(sarima1)) +
+  theme_minimal()
+```
+From the plot, we can understand that the residuals are uncorrelated because the observed p-values of the Ljung-Box test are above the threshold of 0.05. This is also confirmed by the ACF plot.
+
+
+### Normality of the Residuals
+
+Firstly, through a histogram of the residuals, we visually inspect their distribution. Secondly, using the \texttt{qqnorm()} function, we generate a QQ plot to compare the quantiles of the residuals to those of a theoretical normal distribution. This helps in visually assessing if the residuals follow a normal distribution. To further evaluate the normality of the residuals, a line is added to the QQ plot using the \texttt{qqline()} function.
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+par(mfrow=c(1,2))
+hist(z.res1, freq=F, main = "Histogram Residuals SARIMA1", col = "lightblue", 
+     xlab = "Residuals")
+lines(density(z.res1), lwd = 3, col = "darkblue")
+lines(seq(-4, 4, 0.01), dnorm(seq(-4, 4, 0.01), mean(z.res1), sd(z.res1)), 
+      col = "red", lwd = 2)
+
+qqnorm(z.res1, main="qq-plot of residuals SARIMA1", pch = 1, col = "blue")
+qqline(z.res1, col = "red", lwd = 2)
+```
+The linearity of the points suggests that the data are normally distributed with mean = 0.
+
+
+In addition, we will apply the Shapiro-Wilk normality test to the residuals in order to test if the normality would be rejected or not.
+$$\begin{cases}
+H_0 : \text{normality}\\
+H_1 : \text{non-normality} 
+\end{cases}$$
+```{r}
+shapiro.test(z.res1)
+```
+The p-value of 0.4961 suggests that we fail to reject the null hypothesis $H_0$, indicating that the residuals follow a normal distribution.
+
+
+# Forecasting 
+
+
+During the forecasting phase, our primary objective was to evaluate the congruence between our predicted values and the actual observations. To accomplish this task, we employed a time series forecasting technique, leveraging the chosen SARIMA(1,1,1)(1,1,1)[12] model.
+
+To ensure the credibility of our forecast, we undertook a training process on a subset of the original dataset. This involved excluding the final three years of data, creating a refined dataset extending only until December 1994.
+
+Subsequently, utilizing our trained model, we generated predictions for the subsequent 96 months, equivalent to a eight-year projection.
+
+```{r, fig.align='center', fig.width=10, fig.height=6}
+train = window(co2, end= c(1994,12))  #new dataset until 1994-12
+
+sarimanew1 = Arima(train, order = c(1, 1, 1), 
+                   seasonal = list(order = c(1, 1, 1), period = 12), 
+                   method = "ML")
+forecastNUOVO <- forecast(sarimanew1, level = c(95), h = 96) 
+
+plot(forecastNUOVO, xlim = c(1993, 2002), col = "black", lty = 1,lwd = 2,
+     ylab = expression("CO"[2]*" concentration (ppm)"), xlab = "Date") 
+lines(window(co2, start = c(1995, 1)), col = "red", type = "l", lwd = 1)  
+legend("bottomright", legend = c("Actual", "Predicted"), col = c("red", "blue"),
+       lty = 1, lwd = 2)
+grid()
+```
+
+The overlapping of the two lines, with the blue line representing predictions and the red line indicating actual values, reveals a remarkable alignment. This close overlap underscores the accuracy of our predictions, indicating that our model adeptly captures the underlying patterns within the dataset.
+
+
+
